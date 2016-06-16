@@ -61,7 +61,7 @@ function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l)
            for j=1,i do
                ydata[j] = 0
            end
-           all_ydata[-i] = ydata
+           all_ydata[context_size+i] = ydata
        end
        local data_char = torch.zeros(data:size(1), self.max_word_l):long()
        for i = 1, data:size(1) do
