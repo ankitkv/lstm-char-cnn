@@ -25,6 +25,7 @@ cmd:text()
 cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/mimic','data directory. Should contain train.txt/valid.txt/test.txt with input data')
+cmd:option('-context_size',2,'how many words on either side to consider as context')
 -- model params
 cmd:option('-highway_layers', 2, 'number of highway layers')
 cmd:option('-char_vec_size', 15, 'dimensionality of character embeddings')
@@ -83,7 +84,7 @@ if opt.cudnn == 1 then
 end
 
 -- create the data loader class
-loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.max_word_l)
+loader = BatchLoader.create(opt.data_dir, opt.context_size, opt.batch_size, opt.max_word_l)
 print('Word vocab size: ' .. #loader.idx2word .. ', Char vocab size: ' .. #loader.idx2char
             .. ', Max word length (incl. padding): ', loader.max_word_l)
 opt.max_word_l = loader.max_word_l
@@ -180,12 +181,14 @@ function eval_split(split_idx, max_batches)
         if opt.gpuid >= 0 then -- ship the input arrays to GPU
             -- have to convert to float because integers can't be cuda()'d
             x = x:float():cuda()
-            y = y:float():cuda()
+            for context, ydata in ipairs(y) do
+                y[context] = ydata:float():cuda()
+            end
             x_char = x_char:float():cuda()
         end
         -- forward pass
         local prediction = charcnn:forward(x_char[{{},1}])
-        loss = loss + criterion:forward(prediction, y[{{},1}])
+        loss = loss + criterion:forward(prediction, y[1][{{},1}])
     end
     loss = loss / n
     local perp = torch.exp(loss)
@@ -206,16 +209,18 @@ function feval(x)
     if opt.gpuid >= 0 then -- ship the input arrays to GPU
         -- have to convert to float because integers can't be cuda()'d
         x = x:float():cuda()
-        y = y:float():cuda()
+        for context, ydata in ipairs(y) do
+            y[context] = ydata:float():cuda()
+        end
         x_char = x_char:float():cuda()
     end
     ------------------- forward pass -------------------
     local predictions = charcnn:forward(x_char[{{},1}])
-    local loss = criterion:forward(predictions, y[{{},1}])
+    local loss = criterion:forward(predictions, y[1][{{},1}])
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
         -- backprop through loss, and softmax/linear
-    local doutput_t = criterion:backward(predictions, y[{{},1}])
+    local doutput_t = criterion:backward(predictions, y[1][{{},1}])
     local dlst = charcnn:backward(x_char[{{},1}], doutput_t)
 
     ------------------------ misc ----------------------

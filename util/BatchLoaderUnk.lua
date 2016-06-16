@@ -7,7 +7,7 @@ local stringx = require('pl.stringx')
 BatchLoaderUnk.__index = BatchLoaderUnk
 utf8 = require 'lua-utf8'
 
-function BatchLoaderUnk.create(data_dir, batch_size, max_word_l)
+function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l)
     local self = {}
     setmetatable(self, BatchLoaderUnk)
 
@@ -43,32 +43,41 @@ function BatchLoaderUnk.create(data_dir, batch_size, max_word_l)
     local x_batches, y_batches, nbatches
     for split, data in ipairs(all_data) do
        local len = data:size(1)
-       if len % batch_size ~= 0 and split < 3 then
+       if len % batch_size ~= 0 then
           data = data:sub(1, batch_size * math.floor(len / batch_size))
        end
-       local ydata = data:clone()
-       ydata:sub(1,-2):copy(data:sub(2,-1))
-       ydata[-1] = data[1]
+       local all_ydata = {}
+       for i=1,context_size do
+           local ydata = data:clone()
+           ydata:sub(1,-i-1):copy(data:sub(i+1,-1))
+           for j=1,i do
+               ydata[j-i-1] = 0
+           end
+           all_ydata[i] = ydata
+       end
+       for i=1,context_size do
+           local ydata = data:clone()
+           ydata:sub(i+1,-1):copy(data:sub(1,-i-1))
+           for j=1,i do
+               ydata[j] = 0
+           end
+           all_ydata[-i] = ydata
+       end
        local data_char = torch.zeros(data:size(1), self.max_word_l):long()
        for i = 1, data:size(1) do
           data_char[i] = all_data_char[split][i]
        end
-       if split < 3 then
-          x_batches = data:view(batch_size, -1):split(1, 2)
-          y_batches = ydata:view(batch_size, -1):split(1, 2)
-          x_char_batches = data_char:view(batch_size, -1, self.max_word_l):split(1,2)
-          nbatches = #x_batches
-          self.split_sizes[split] = nbatches
-          assert(#x_batches == #y_batches)
-          assert(#x_batches == #x_char_batches)
-       else --for test we repeat dimensions to batch size (easier but inefficient evaluation)
-          x_batches = {data:resize(1, data:size(1)):expand(batch_size, data:size(2))}
-          y_batches = {ydata:resize(1, ydata:size(1)):expand(batch_size, ydata:size(2))}
-          data_char = data_char:resize(1, data_char:size(1), data_char:size(2))
-          x_char_batches = {data_char:expand(batch_size, data_char:size(2), data_char:size(3))}
-          self.split_sizes[split] = 1
+       x_batches = data:view(batch_size, -1):split(1, 2)
+       local all_y_batches = {}
+       for context, ydata in ipairs(all_ydata) do
+           all_y_batches[context] = ydata:view(batch_size, -1):split(1, 2)
        end
-       self.all_batches[split] = {x_batches, y_batches, x_char_batches}
+       x_char_batches = data_char:view(batch_size, -1, self.max_word_l):split(1,2)
+       nbatches = #x_batches
+       self.split_sizes[split] = nbatches
+       assert(#x_batches == #all_y_batches[1])
+       assert(#x_batches == #x_char_batches)
+       self.all_batches[split] = {x_batches, all_y_batches, x_char_batches}
     end
     self.batch_idx = {0,0,0}
     print(string.format('data load done. Number of batches in train: %d, val: %d, test: %d',
@@ -90,7 +99,12 @@ function BatchLoaderUnk:next_batch(split_idx)
     end
     -- pull out the correct next batch
     local idx = self.batch_idx[split_idx]
-    return self.all_batches[split_idx][1][idx], self.all_batches[split_idx][2][idx], self.all_batches[split_idx][3][idx]
+    ydata = self.all_batches[split_idx][2]
+    ysplit = {}
+    for context, data in ipairs(ydata) do
+        ysplit[context] = data[idx]
+    end
+    return self.all_batches[split_idx][1][idx], ysplit, self.all_batches[split_idx][3][idx]
 end
 
 function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfile, out_charfile, max_word_l)
