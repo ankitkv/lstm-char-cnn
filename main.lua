@@ -188,9 +188,11 @@ function eval_split(split_idx, max_batches)
         end
         -- forward pass
         local prediction = charcnn:forward(x_char[{{},1}])
-        loss = loss + criterion:forward(prediction, y[1][{{},1}])
+        for t = 1, opt.context_size * 2 do
+            loss = loss + criterion:forward(prediction, y[t][{{},1}])
+        end
     end
-    loss = loss / n
+    loss = loss / (n * opt.context_size * 2)
     local perp = torch.exp(loss)
     return perp
 end
@@ -216,12 +218,17 @@ function feval(x)
     end
     ------------------- forward pass -------------------
     local predictions = charcnn:forward(x_char[{{},1}])
-    local loss = criterion:forward(predictions, y[1][{{},1}])
+    local loss = 0
+    for t = 1, opt.context_size * 2 do
+        loss = loss + criterion:forward(predictions, y[t][{{},1}])
+    end
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
         -- backprop through loss, and softmax/linear
-    local doutput_t = criterion:backward(predictions, y[1][{{},1}])
-    local dlst = charcnn:backward(x_char[{{},1}], doutput_t)
+    for t = 1, opt.context_size * 2 do
+        local doutput_t = criterion:backward(predictions, y[t][{{},1}])
+        local dlst = charcnn:backward(x_char[{{},1}], doutput_t)
+    end
 
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
