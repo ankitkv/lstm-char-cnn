@@ -169,7 +169,7 @@ charcnn:apply(get_layer)
 function eval_split(split_idx, max_batches)
     print('evaluating loss over split index ' .. split_idx)
     local n = loader.split_sizes[split_idx]
-    protos.criterion:change_bias()
+    criterion:change_bias()
 
     if max_batches ~= nil then n = math.min(max_batches, n) end
 
@@ -293,7 +293,8 @@ for i = 1, iterations do
         val_losses[#val_losses+1] = val_loss
         local savefile = string.format('%s/lm_%s_epoch%.2f_%.2f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
         local checkpoint = {}
-        checkpoint.protos = protos
+        checkpoint.charcnn = charcnn
+        checkpoint.criterion = criterion
         checkpoint.opt = opt
         checkpoint.train_losses = train_losses
         checkpoint.val_loss = val_loss
@@ -302,8 +303,8 @@ for i = 1, iterations do
         checkpoint.epoch = epoch
         checkpoint.vocab = {loader.idx2word, loader.word2idx, loader.idx2char, loader.char2idx}
         checkpoint.lr = lr
-        print('saving checkpoint to ' .. savefile)
         if epoch == opt.max_epochs or epoch % opt.save_every == 0 then
+            print('saving checkpoint to ' .. savefile)
             torch.save(savefile, checkpoint)
         end
     end
