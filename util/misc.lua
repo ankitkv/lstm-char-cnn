@@ -10,3 +10,15 @@ function clone_list(tensor_list, zero_too)
     end
     return out
 end
+
+function tablesum(list) 
+    local acc
+    for k, v in ipairs(list) do
+        if 1 == k then
+            acc = v
+        else
+            acc = acc + v
+        end 
+    end 
+    return acc 
+end
