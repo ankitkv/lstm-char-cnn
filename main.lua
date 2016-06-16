@@ -175,26 +175,8 @@ function eval_split(split_idx, max_batches)
 
     loader:reset_batch_pointer(split_idx) -- move batch iteration pointer for this split to front
     local loss = 0
-    if split_idx<=2 then -- batch eval        
-        for i = 1,n do -- iterate over batches in the split
-            -- fetch a batch
-            local x, y, x_char = loader:next_batch(split_idx)
-            if opt.gpuid >= 0 then -- ship the input arrays to GPU
-                -- have to convert to float because integers can't be cuda()'d
-                x = x:float():cuda()
-                y = y:float():cuda()
-                x_char = x_char:float():cuda()
-            end
-            -- forward pass
-            for t=1,opt.seq_length do
-                local lst = charcnn:forward(x_char[{{},t}])
-                prediction = lst
-                loss = loss + criterion:forward(prediction, y[{{}, t}])
-            end
-        end
-        loss = loss / opt.seq_length / n
-    else -- full eval on test set
-        local token_perp = torch.zeros(#loader.idx2word, 2) 
+    for i = 1,n do -- iterate over batches in the split
+        -- fetch a batch
         local x, y, x_char = loader:next_batch(split_idx)
         if opt.gpuid >= 0 then -- ship the input arrays to GPU
             -- have to convert to float because integers can't be cuda()'d
@@ -202,19 +184,16 @@ function eval_split(split_idx, max_batches)
             y = y:float():cuda()
             x_char = x_char:float():cuda()
         end
-        for t = 1, x:size(2) do
+        -- forward pass
+        for t=1,opt.seq_length do
             local lst = charcnn:forward(x_char[{{},t}])
             prediction = lst
-            local tok_perp
-            tok_perp = criterion:forward(prediction, y[{{},t}])
-            loss = loss + tok_perp
-            token_perp[y[1][t]][1] = token_perp[y[1][t]][1] + 1 --count
-            token_perp[y[1][t]][2] = token_perp[y[1][t]][2] + tok_perp
+            loss = loss + criterion:forward(prediction, y[{{}, t}])
         end
-        loss = loss / x:size(2)
-    end    
+    end
+    loss = loss / opt.seq_length / n
     local perp = torch.exp(loss)    
-    return perp, token_perp
+    return perp
 end
 
 -- do fwd/bwd and return loss, grad_params
@@ -331,7 +310,5 @@ end
 --th evaluate.lua -model m
 --where m is the path to the best-performing model
 
-test_perp, token_perp = eval_split(3)
+test_perp = eval_split(3)
 print('Perplexity on test set: ' .. test_perp)
-torch.save('token_perp-ss.t7', {token_perp, loader.idx2word})
-
