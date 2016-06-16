@@ -1,7 +1,7 @@
 
 -- adapted from https://github.com/wojciechz/learning_to_execute
 -- utilities for combining/flattening parameters in a model
--- the code in this script is more general than it needs to be, which is 
+-- the code in this script is more general than it needs to be, which is
 -- why it is kind of a large
 
 require 'torch'
@@ -15,16 +15,16 @@ function model_utils.combine_all_parameters(...)
     local gradParameters = {}
     for i = 1, #networks do
         local tn = torch.typename(layer)
-	local net_params, net_grads = networks[i]:parameters()
+        local net_params, net_grads = networks[i]:parameters()
 
-	if net_params then
-	    for _, p in pairs(net_params) do
-		parameters[#parameters + 1] = p
-	    end
-	    for _, g in pairs(net_grads) do
-		gradParameters[#gradParameters + 1] = g
-	    end
-	end
+        if net_params then
+            for _, p in pairs(net_params) do
+                parameters[#parameters + 1] = p
+            end
+            for _, g in pairs(net_grads) do
+                gradParameters[#gradParameters + 1] = g
+            end
+        end
     end
 
     local function storageInSet(set, storage)

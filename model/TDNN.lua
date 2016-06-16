@@ -10,10 +10,10 @@ function TDNN.tdnn(length, input_size, feature_maps, kernels)
     -- kernels = table of kernel widths
     local layer1_concat, output
     local input = nn.Identity()() --input is batch_size x length x input_size
-    
+
     local layer1 = {}
     for i = 1, #kernels do
-       local reduced_l = length - kernels[i] + 1 
+       local reduced_l = length - kernels[i] + 1
        local pool_layer
        if opt.cudnn == 1 then
           -- Use CuDNN for temporal convolution.
@@ -24,15 +24,15 @@ function TDNN.tdnn(length, input_size, feature_maps, kernels)
           conv.name = 'conv_filter_' .. kernels[i] .. '_' .. feature_maps[i]
           local conv_layer = conv(nn.View(1, -1, input_size):setNumInputDims(2)(input))
           --pool_layer = nn.Max(3)(nn.Max(3)(nn.Tanh()(conv_layer)))
-	  pool_layer = nn.Squeeze()(cudnn.SpatialMaxPooling(1, reduced_l, 1, 1, 0, 0)(nn.Tanh()(conv_layer)))
+          pool_layer = nn.Squeeze()(cudnn.SpatialMaxPooling(1, reduced_l, 1, 1, 0, 0)(nn.Tanh()(conv_layer)))
        else
           -- Temporal conv. much slower
           local conv = nn.TemporalConvolution(input_size, feature_maps[i], kernels[i])
           local conv_layer = conv(input)
           conv.name = 'conv_filter_' .. kernels[i] .. '_' .. feature_maps[i]
-          --pool_layer = nn.Max(2)(nn.Tanh()(conv_layer))    
-	  pool_layer = nn.TemporalMaxPooling(reduced_l)(nn.Tanh()(conv_layer))
-	  pool_layer = nn.Squeeze()(pool_layer)
+          --pool_layer = nn.Max(2)(nn.Tanh()(conv_layer))
+          pool_layer = nn.TemporalMaxPooling(reduced_l)(nn.Tanh()(conv_layer))
+          pool_layer = nn.Squeeze()(pool_layer)
 
        end
        table.insert(layer1, pool_layer)

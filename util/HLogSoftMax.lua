@@ -20,7 +20,7 @@ function HLogSoftMax:__init(mapping, input_size)
         self.n_class_in_cluster[c] = self.n_class_in_cluster[c] + 1
     end
     self.n_max_class_in_cluster = self.mapping[{{},2}]:max()
-    
+
     --cluster softmax/loss
     self.cluster_model = nn.Sequential()
     self.cluster_model:add(nn.Linear(input_size, self.n_clusters))
@@ -30,14 +30,14 @@ function HLogSoftMax:__init(mapping, input_size)
     --class softmax/loss
     self.class_model = HSMClass.hsm(self.input_size, self.n_clusters, self.n_max_class_in_cluster)
     local get_layer = function (layer)
-		          if layer.name ~= nil then
-			      if layer.name == 'class_bias' then
-			          self.class_bias = layer
-			      elseif layer.name == 'class_weight' then
+                          if layer.name ~= nil then
+                              if layer.name == 'class_bias' then
+                                  self.class_bias = layer
+                              elseif layer.name == 'class_weight' then
                                   self.class_weight = layer
                               end
-		          end    
-		      end
+                          end
+                      end
     self.class_model:apply(get_layer)
     self.logLossClass = nn.ClassNLLCriterion()
 
@@ -74,7 +74,7 @@ function HLogSoftMax:updateOutput(input, target)
                         self.class_model:forward({input, new_target:select(2,1)}),
                         new_target:select(2,2))
     self.output = cluster_loss + class_loss
-    return self.output                   
+    return self.output
 end
 
 function HLogSoftMax:updateGradInput(input, target)
@@ -82,7 +82,7 @@ function HLogSoftMax:updateGradInput(input, target)
     local new_target = self.mapping:index(1, target)
     -- backprop clusters
     self.logLossCluster:updateGradInput(self.cluster_model.output,
-                                        new_target:select(2,1))    
+                                        new_target:select(2,1))
     self.gradInput:copy(self.cluster_model:backward(input,
                         self.logLossCluster.gradInput))
     -- backprop classes
@@ -105,7 +105,7 @@ function HLogSoftMax:change_bias()
         local c = self.n_class_in_cluster[i]
         for j = c+1, self.n_max_class_in_cluster do
             self.class_bias.weight[i][j] = math.log(0)
-        end        
+        end
     end
 end
 

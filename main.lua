@@ -35,7 +35,6 @@ cmd:option('-learning_rate',1,'starting learning rate')
 cmd:option('-learning_rate_decay',0.5,'learning rate decay')
 cmd:option('-decay_when',1,'decay if validation perplexity does not improve by more than this much')
 cmd:option('-param_init', 0.05, 'initialize parameters at')
-cmd:option('-seq_length',35,'number of timesteps to unroll for')
 cmd:option('-batch_size',20,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',25,'number of full passes through the training data')
 cmd:option('-max_grad_norm',5,'normalize gradients at')
@@ -67,7 +66,7 @@ opt.tokens.EOS = opt.EOS
 opt.tokens.UNK = '|' -- unk word token
 opt.tokens.START = '{' -- start-of-word token
 opt.tokens.END = '}' -- end-of-word token
-opt.tokens.ZEROPAD = ' ' -- zero-pad token 
+opt.tokens.ZEROPAD = ' ' -- zero-pad token
 
 -- load necessary packages depending on config options
 if opt.gpuid >= 0 then
@@ -84,7 +83,7 @@ if opt.cudnn == 1 then
 end
 
 -- create the data loader class
-loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, opt.max_word_l)
+loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.max_word_l)
 print('Word vocab size: ' .. #loader.idx2word .. ', Char vocab size: ' .. #loader.idx2char
             .. ', Max word length (incl. padding): ', loader.max_word_l)
 opt.max_word_l = loader.max_word_l
@@ -97,18 +96,18 @@ HSMClass = require 'util.HSMClass'
 require 'util.HLogSoftMax'
 mapping = torch.LongTensor(#loader.idx2word, 2):zero()
 local n_in_each_cluster = #loader.idx2word / hsm
-local _, idx = torch.sort(torch.randn(#loader.idx2word), 1, true)   
+local _, idx = torch.sort(torch.randn(#loader.idx2word), 1, true)
 local n_in_cluster = {} --number of tokens in each cluster
 local c = 1
 for i = 1, idx:size(1) do
-    local word_idx = idx[i] 
+    local word_idx = idx[i]
     if n_in_cluster[c] == nil then
         n_in_cluster[c] = 1
     else
         n_in_cluster[c] = n_in_cluster[c] + 1
     end
     mapping[word_idx][1] = c
-    mapping[word_idx][2] = n_in_cluster[c]        
+    mapping[word_idx][2] = n_in_cluster[c]
     if n_in_cluster[c] >= n_in_each_cluster then
         c = c+1
     end
@@ -129,8 +128,8 @@ if not path.exists(opt.checkpoint_dir) then lfs.mkdir(opt.checkpoint_dir) end
 
 -- define the model: prototypes for one timestep, then clone them in time
 print('creating a SkipGram-CNN layer')
-charcnn = SkipGram.skipgram(#loader.idx2word, 
-                    #loader.idx2char, opt.char_vec_size, opt.feature_maps, 
+charcnn = SkipGram.skipgram(#loader.idx2word,
+                    #loader.idx2char, opt.char_vec_size, opt.feature_maps,
                     opt.kernels, loader.max_word_l, opt.highway_layers)
 -- training criterion (negative log likelihood)
 criterion = nn.HLogSoftMax(mapping, tablesum(opt.feature_maps))
@@ -162,7 +161,7 @@ function get_layer(layer)
             cnn = layer
         end
     end
-end 
+end
 charcnn:apply(get_layer)
 
 
@@ -185,14 +184,11 @@ function eval_split(split_idx, max_batches)
             x_char = x_char:float():cuda()
         end
         -- forward pass
-        for t=1,opt.seq_length do
-            local lst = charcnn:forward(x_char[{{},t}])
-            prediction = lst
-            loss = loss + criterion:forward(prediction, y[{{}, t}])
-        end
+        local prediction = charcnn:forward(x_char[{{},1}])
+        loss = loss + criterion:forward(prediction, y[{{},1}])
     end
-    loss = loss / opt.seq_length / n
-    local perp = torch.exp(loss)    
+    loss = loss / n
+    local perp = torch.exp(loss)
     return perp
 end
 
@@ -214,21 +210,13 @@ function feval(x)
         x_char = x_char:float():cuda()
     end
     ------------------- forward pass -------------------
-    local predictions = {}           -- softmax outputs
-    local loss = 0
-    for t=1,opt.seq_length do
-        local lst = charcnn:forward(x_char[{{},t}])
-        predictions[t] = lst -- last element is the prediction
-        loss = loss + criterion:forward(predictions[t], y[{{}, t}])
-    end
-    loss = loss / opt.seq_length
+    local predictions = charcnn:forward(x_char[{{},1}])
+    local loss = criterion:forward(predictions, y[{{},1}])
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
-    for t=opt.seq_length,1,-1 do
         -- backprop through loss, and softmax/linear
-        local doutput_t = criterion:backward(predictions[t], y[{{}, t}])
-        local dlst = charcnn:backward(x_char[{{},t}], doutput_t)
-    end
+    local doutput_t = criterion:backward(predictions, y[{{},1}])
+    local dlst = charcnn:backward(x_char[{{},1}], doutput_t)
 
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
@@ -239,7 +227,7 @@ function feval(x)
         shrink_factor = opt.max_grad_norm / grad_norm
         grad_params:mul(shrink_factor)
         hsm_grad_params:mul(shrink_factor)
-    end    
+    end
     params:add(grad_params:mul(-lr)) -- update params
     hsm_params:add(hsm_grad_params:mul(-lr))
     return torch.exp(loss)
@@ -257,12 +245,12 @@ for i = 1, iterations do
 
     local timer = torch.Timer()
     local time = timer:time().real
-    
+
     train_loss = feval(params) -- fwd/backprop and update params
     if char_vecs ~= nil then -- zero-padding vector is always zero
-        char_vecs.weight[1]:zero() 
+        char_vecs.weight[1]:zero()
         char_vecs.gradWeight[1]:zero()
-    end 
+    end
     train_losses[i] = train_loss
 
     -- every now and then or on last iteration
@@ -293,11 +281,11 @@ for i = 1, iterations do
         if val_losses[#val_losses-1] - val_losses[#val_losses] < opt.decay_when then
             lr = lr * opt.learning_rate_decay
         end
-    end    
+    end
 
     if i % opt.print_every == 0 then
         print(string.format("%d/%d (epoch %.2f), train_loss = %6.4f", i, iterations, epoch, train_loss))
-    end   
+    end
     if i % 10 == 0 then collectgarbage() end
     if opt.time ~= 0 then
        print("Batch Time:", timer:time().real - time)

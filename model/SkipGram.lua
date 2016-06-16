@@ -3,7 +3,7 @@ local SkipGram = {}
 local ok, cunn = pcall(require, 'fbcunn')
 
 function SkipGram.skipgram(word_vocab_size, char_vocab_size, char_vec_size, feature_maps, kernels, length, highway_layers)
-    -- word_vocab_size = num words in the vocab    
+    -- word_vocab_size = num words in the vocab
     -- char_vocab_size = num chars in the character vocab
     -- char_vec_size = dimensionality of char embeddings
     -- feature_maps = table of feature map sizes for each kernel width
