@@ -30,7 +30,7 @@ function SkipGram.skipgram(word_vocab_size, char_vocab_size, char_vec_size, feat
         x = highway_mlp(x)
     end
     x = nn.View(-1, input_size_L, 1)(x)
-    local context_vec_layer = nn.LookupTable(word_vocab_size, input_size_L)
+    local context_vec_layer = nn.LookupTable(word_vocab_size, input_size_L)(context)
     local mm = nn.Squeeze(3)(nn.MM()({context_vec_layer, x}))
     local out = nn.Sigmoid()(mm)
     return nn.gModule({x_char, context}, {out})

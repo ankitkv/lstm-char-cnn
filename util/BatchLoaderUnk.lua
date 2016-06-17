@@ -100,10 +100,9 @@ function BatchLoaderUnk.build_table(alpha, table_size, idx2freq)
         table[idx] = word_index
         if idx / table_size > word_prob then
             word_index = word_index + 1
-            word_prob = word_prob + idx2freq[word_index]^alpha / total_count_pow
-        end
-        if word_index > #idx2freq then
-            word_index = word_index - 1
+            if word_index <= #idx2freq then
+                word_prob = word_prob + idx2freq[word_index]^alpha / total_count_pow
+            end
         end
     end
     print(string.format("Done in %.2f seconds.", sys.clock() - start))
