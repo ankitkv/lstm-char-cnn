@@ -107,8 +107,8 @@ charcnn = SkipGram.skipgram(#loader.idx2word,
                     opt.kernels, loader.max_word_l, opt.highway_layers)
 criterion = nn.BCECriterion()
 
-labels = torch.zeros(opt.batch_size, opt.neg_samples + 1)
-labels:sub(1,-1,1,1):fill(1)
+labels = torch.zeros(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2)
+labels:sub(1,-1,1,opt.context_size * 2):fill(1)
 
 -- ship the model to the GPU if desired
 if opt.gpuid >= 0 then
@@ -141,14 +141,16 @@ charcnn:apply(get_layer)
 
 function sample_contexts(context)
     local contexts = {}
-    contexts = torch.IntTensor(opt.batch_size, opt.neg_samples + 1)
-    contexts[{{},1}] = context:int()
+    contexts = torch.IntTensor(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2)
+    for t = 1, opt.context_size * 2 do
+        contexts[{{},t}] = context[t][{{},1}]:int()
+    end
     for j = 1, opt.batch_size do
         local i = 0
-        while i < opt.neg_samples do
+        while i < opt.neg_samples * opt.context_size * 2 do
             local neg_context = loader.table[torch.random(opt.table_size)]
             if context[j] ~= neg_context then
-                contexts[j][i+2] = neg_context
+                contexts[j][i+1+(opt.context_size * 2)] = neg_context
                 i = i + 1
             end
         end
@@ -176,14 +178,12 @@ function eval_split(split_idx, max_batches)
             x_char = x_char:float():cuda()
         end
         -- forward pass
-        for t = 1, opt.context_size * 2 do
-            local contexts = sample_contexts(y[t][{{},1}])
-            if opt.gpuid >= 0 then
-                contexts = contexts:float():cuda()
-            end
-            local prediction = charcnn:forward({x_char[{{},1}], contexts})
-            loss = loss + criterion:forward(prediction, labels)
+        local contexts = sample_contexts(y)
+        if opt.gpuid >= 0 then
+            contexts = contexts:float():cuda()
         end
+        local prediction = charcnn:forward({x_char[{{},1}], contexts})
+        loss = loss + criterion:forward(prediction, labels)
     end
     loss = loss / (n * opt.context_size * 2)
     local perp = torch.exp(loss)
@@ -207,24 +207,17 @@ function feval(x)
         x_char = x_char:float():cuda()
     end
     ------------------- forward pass -------------------
-    local loss = 0
-    local contexts = {}
-    local predictions = {}
-    for t = 1, opt.context_size * 2 do
-        contexts[t] = sample_contexts(y[t][{{},1}])
-        if opt.gpuid >= 0 then
-            contexts[t] = contexts[t]:float():cuda()
-        end
-        predictions[t] = charcnn:forward({x_char[{{},1}], contexts[t]})
-        loss = loss + criterion:forward(predictions[t], labels)
+    local contexts = sample_contexts(y)
+    if opt.gpuid >= 0 then
+        contexts = contexts:float():cuda()
     end
+    local predictions = charcnn:forward({x_char[{{},1}], contexts})
+    local loss = criterion:forward(predictions, labels)
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
         -- backprop through loss, and softmax/linear
-    for t = 1, opt.context_size * 2 do
-        local doutput_t = criterion:backward(predictions[t], labels)
-        local dlst = charcnn:backward({x_char[{{},1}], contexts[t]}, doutput_t)
-    end
+    local doutput_t = criterion:backward(predictions, labels)
+    local dlst = charcnn:backward({x_char[{{},1}], contexts}, doutput_t)
 
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
