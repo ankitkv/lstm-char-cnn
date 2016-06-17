@@ -263,6 +263,7 @@ for i = 1, iterations do
     if i % loader.split_sizes[1] == 0 then
         -- evaluate loss on validation data
         local val_loss = eval_split(2) -- 2 = validation
+        print('Loss: ' .. val_loss)
         val_losses[#val_losses+1] = val_loss
         local savefile = string.format('%s/lm_%s_epoch%.2f_%.2f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
         local checkpoint = {}
