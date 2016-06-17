@@ -40,6 +40,9 @@ cmd:option('-batch_size',20,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',25,'number of full passes through the training data')
 cmd:option('-max_grad_norm',5,'normalize gradients at')
 cmd:option('-max_word_l',65,'maximum word length')
+cmd:option('-neg_samples',5,'number of negative samples')
+cmd:option('-alpha',0.75,'smooth unigram frequencies')
+cmd:option('-table_size',1e8,'table size from which to sample neg samples')
 -- bookkeeping
 cmd:option('-seed',3435,'torch manual random number generator seed')
 cmd:option('-print_every',500,'how many steps/minibatches between printing out the loss')
@@ -84,42 +87,12 @@ if opt.cudnn == 1 then
 end
 
 -- create the data loader class
-loader = BatchLoader.create(opt.data_dir, opt.context_size, opt.batch_size, opt.max_word_l)
+loader = BatchLoader.create(opt.data_dir, opt.context_size, opt.batch_size, opt.max_word_l, opt.alpha, opt.table_size)
 print('Word vocab size: ' .. #loader.idx2word .. ', Char vocab size: ' .. #loader.idx2char
             .. ', Max word length (incl. padding): ', loader.max_word_l)
 opt.max_word_l = loader.max_word_l
 
-hsm = torch.round(torch.sqrt(#loader.idx2word))
-
--- partition into hsm clusters
--- we want roughly equal number of words in each cluster
-HSMClass = require 'util.HSMClass'
-require 'util.HLogSoftMax'
-mapping = torch.LongTensor(#loader.idx2word, 2):zero()
-local n_in_each_cluster = #loader.idx2word / hsm
-local _, idx = torch.sort(torch.randn(#loader.idx2word), 1, true)
-local n_in_cluster = {} --number of tokens in each cluster
-local c = 1
-for i = 1, idx:size(1) do
-    local word_idx = idx[i]
-    if n_in_cluster[c] == nil then
-        n_in_cluster[c] = 1
-    else
-        n_in_cluster[c] = n_in_cluster[c] + 1
-    end
-    mapping[word_idx][1] = c
-    mapping[word_idx][2] = n_in_cluster[c]
-    if n_in_cluster[c] >= n_in_each_cluster then
-        c = c+1
-    end
-    if c > hsm then --take care of some corner cases
-        c = hsm
-    end
-end
-print(string.format('using hierarchical softmax with %d classes', hsm))
-
-
--- load model objects. we do this here because of cudnn and hsm options
+-- load model objects. we do this here because of cudnn options
 TDNN = require 'model.TDNN'
 SkipGram = require 'model.SkipGram'
 HighwayMLP = require 'model.HighwayMLP'
@@ -132,20 +105,21 @@ print('creating a SkipGram-CNN layer')
 charcnn = SkipGram.skipgram(#loader.idx2word,
                     #loader.idx2char, opt.char_vec_size, opt.feature_maps,
                     opt.kernels, loader.max_word_l, opt.highway_layers)
--- training criterion (negative log likelihood)
-criterion = nn.HLogSoftMax(mapping, tablesum(opt.feature_maps))
+criterion = nn.BCECriterion()
+
+labels = torch.zeros(opt.batch_size, opt.neg_samples)
+labels:sub(1,-1,1,1):fill(1)
+
 -- ship the model to the GPU if desired
 if opt.gpuid >= 0 then
     charcnn = charcnn:cuda()
     criterion = criterion:cuda()
+    labels = labels:float():cuda()
 end
 
 -- put the above things into one flattened parameters tensor
 params, grad_params = model_utils.combine_all_parameters(charcnn)
--- hsm has its own params
-hsm_params, hsm_grad_params = criterion:getParameters()
-hsm_params:uniform(-opt.param_init, opt.param_init)
-print('number of parameters in the model: ' .. params:nElement() + hsm_params:nElement())
+print('number of parameters in the model: ' .. params:nElement())
 
 -- initialization
 params:uniform(-opt.param_init, opt.param_init) -- small numbers uniform
@@ -165,11 +139,26 @@ function get_layer(layer)
 end
 charcnn:apply(get_layer)
 
+function sample_contexts(context)
+    local contexts = {}
+    contexts = torch.Tensor(opt.batch_size, opt.neg_samples)
+    contexts[{{},1}] = context
+    for j = 1,context:size() do
+        local i = 0
+        while i < opt.neg_samples do
+            local neg_context = loader.table[torch.random(opt.table_size)]
+            if context[j] ~= neg_context then
+                contexts[j][i+2] = neg_context
+                i = i + 1
+            end
+        end
+    end
+    return contexts
+end
 
 function eval_split(split_idx, max_batches)
     print('evaluating loss over split index ' .. split_idx)
     local n = loader.split_sizes[split_idx]
-    criterion:change_bias()
 
     if max_batches ~= nil then n = math.min(max_batches, n) end
 
@@ -178,18 +167,20 @@ function eval_split(split_idx, max_batches)
     for i = 1,n do -- iterate over batches in the split
         -- fetch a batch
         local x, y, x_char = loader:next_batch(split_idx)
+        local contexts = sample_contexts(y[t][{{},1}])
         if opt.gpuid >= 0 then -- ship the input arrays to GPU
             -- have to convert to float because integers can't be cuda()'d
             x = x:float():cuda()
             for context, ydata in ipairs(y) do
                 y[context] = ydata:float():cuda()
             end
+            contexts = contexts:float():cuda()
             x_char = x_char:float():cuda()
         end
         -- forward pass
-        local prediction = charcnn:forward(x_char[{{},1}])
+        local prediction = charcnn:forward({x_char[{{},1}], contexts})
         for t = 1, opt.context_size * 2 do
-            loss = loss + criterion:forward(prediction, y[t][{{},1}])
+            loss = loss + criterion:forward(prediction, labels)
         end
     end
     loss = loss / (n * opt.context_size * 2)
@@ -203,45 +194,42 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
-    if hsm > 0 then
-        hsm_grad_params:zero()
-    end
     ------------------ get minibatch -------------------
     local x, y, x_char = loader:next_batch(1) --from train
+    local contexts = sample_contexts(y[t][{{},1}])
     if opt.gpuid >= 0 then -- ship the input arrays to GPU
         -- have to convert to float because integers can't be cuda()'d
         x = x:float():cuda()
         for context, ydata in ipairs(y) do
             y[context] = ydata:float():cuda()
         end
+        contexts = contexts:float():cuda()
         x_char = x_char:float():cuda()
     end
     ------------------- forward pass -------------------
-    local predictions = charcnn:forward(x_char[{{},1}])
+    local predictions = charcnn:forward({x_char[{{},1}], contexts})
     local loss = 0
     for t = 1, opt.context_size * 2 do
-        loss = loss + criterion:forward(predictions, y[t][{{},1}])
+        loss = loss + criterion:forward(predictions, labels)
     end
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
         -- backprop through loss, and softmax/linear
     for t = 1, opt.context_size * 2 do
-        local doutput_t = criterion:backward(predictions, y[t][{{},1}])
-        local dlst = charcnn:backward(x_char[{{},1}], doutput_t)
+        local doutput_t = criterion:backward(predictions, labels)
+        local dlst = charcnn:backward({x_char[{{},1}], contexts}, doutput_t)
     end
 
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
     -- renormalize gradients
     local grad_norm, shrink_factor
-    grad_norm = torch.sqrt(grad_params:norm()^2 + hsm_grad_params:norm()^2)
+    grad_norm = torch.sqrt(grad_params:norm()^2)
     if grad_norm > opt.max_grad_norm then
         shrink_factor = opt.max_grad_norm / grad_norm
         grad_params:mul(shrink_factor)
-        hsm_grad_params:mul(shrink_factor)
     end
     params:add(grad_params:mul(-lr)) -- update params
-    hsm_params:add(hsm_grad_params:mul(-lr))
     return torch.exp(loss)
 end
 

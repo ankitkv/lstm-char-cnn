@@ -15,6 +15,7 @@ function SkipGram.skipgram(word_vocab_size, char_vocab_size, char_vec_size, feat
     local highway_layers = highway_layers or 0
     local length = length
     local x_char = nn.Identity()() -- batch_size x word length (char indices)
+    local context = nn.Identity()()
     char_vec_layer = nn.LookupTable(char_vocab_size, char_vec_size)
     char_vec_layer.name = 'char_vecs' -- change name so we can refer to it easily later
     char_vec = char_vec_layer(x_char)
@@ -28,7 +29,11 @@ function SkipGram.skipgram(word_vocab_size, char_vocab_size, char_vec_size, feat
         highway_mlp.name = 'highway'
         x = highway_mlp(x)
     end
-    return nn.gModule({x_char}, {x})
+    x = nn.View(-1, input_size_L, 1)(x)
+    local context_vec_layer = nn.LookupTable(word_vocab_size, input_size_L)
+    local mm = nn.Squeeze(3)(nn.MM()({context_vec_layer, x}))
+    local out = nn.Sigmoid()(mm)
+    return nn.gModule({x_char, context}, {out})
 end
 
 return SkipGram

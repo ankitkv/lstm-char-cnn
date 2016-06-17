@@ -7,7 +7,7 @@ local stringx = require('pl.stringx')
 BatchLoaderUnk.__index = BatchLoaderUnk
 utf8 = require 'lua-utf8'
 
-function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l)
+function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l, alpha, table_size)
     local self = {}
     setmetatable(self, BatchLoaderUnk)
 
@@ -22,14 +22,14 @@ function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l)
     -- construct a tensor with all the data
     if not (path.exists(vocab_file) or path.exists(tensor_file) or path.exists(char_file)) then
         print('one-time setup: preprocessing input train/valid/test files in dir: ' .. data_dir)
-        BatchLoaderUnk.text_to_tensor(input_files, vocab_file, tensor_file, char_file, max_word_l)
+        BatchLoaderUnk.text_to_tensor(input_files, vocab_file, tensor_file, char_file, max_word_l, alpha, table_size)
     end
 
     print('loading data files...')
     local all_data = torch.load(tensor_file) -- train, valid, test tensors
     local all_data_char = torch.load(char_file) -- train, valid, test character indices
     local vocab_mapping = torch.load(vocab_file)
-    self.idx2word, self.word2idx, self.idx2char, self.char2idx = table.unpack(vocab_mapping)
+    self.idx2word, self.word2idx, self.idx2freq, self.table, self.idx2char, self.char2idx = table.unpack(vocab_mapping)
     self.vocab_size = #self.idx2word
     print(string.format('Word vocab size: %d, Char vocab size: %d', #self.idx2word, #self.idx2char))
     -- create word-char mappings
@@ -86,6 +86,30 @@ function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l)
     return self
 end
 
+function BatchLoaderUnk.build_table(alpha, table_size, idx2freq)
+    local start = sys.clock()
+    local total_count_pow = 0
+    print("Building a table of unigram frequencies... ")
+    for _, count in pairs(idx2freq) do
+            total_count_pow = total_count_pow + count^alpha
+    end
+    local table = torch.IntTensor(table_size)
+    local word_index = 1
+    local word_prob = idx2freq[word_index]^alpha / total_count_pow
+    for idx = 1, table_size do
+        table[idx] = word_index
+        if idx / table_size > word_prob then
+            word_index = word_index + 1
+            word_prob = word_prob + idx2freq[word_index]^alpha / total_count_pow
+        end
+        if word_index > #idx2freq then
+            word_index = word_index - 1
+        end
+    end
+    print(string.format("Done in %.2f seconds.", sys.clock() - start))
+    return table
+end
+
 function BatchLoaderUnk:reset_batch_pointer(split_idx, batch_idx)
     batch_idx = batch_idx or 0
     self.batch_idx[split_idx] = batch_idx
@@ -107,7 +131,7 @@ function BatchLoaderUnk:next_batch(split_idx)
     return self.all_batches[split_idx][1][idx], ysplit, self.all_batches[split_idx][3][idx]
 end
 
-function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfile, out_charfile, max_word_l)
+function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfile, out_charfile, max_word_l, alpha, table_size)
     print('Processing text into tensors...')
     local tokens = opt.tokens -- inherit global constants for tokens
     local f, rawdata
@@ -116,6 +140,7 @@ function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfil
     local vocab_count = {} -- vocab count
     local max_word_l_tmp = 0 -- max word length of the corpus
     local idx2word = {tokens.UNK} -- unknown word token
+    local idx2freq = {0}
     local word2idx = {}; word2idx[tokens.UNK] = 1
     local idx2char = {tokens.ZEROPAD, tokens.START, tokens.END} -- zero-pad, start-of-word, end-of-word tokens
     local char2idx = {}; char2idx[tokens.ZEROPAD] = 1; char2idx[tokens.START] = 2; char2idx[tokens.END] = 3
@@ -174,12 +199,16 @@ function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfil
                 if string.sub(word,1,1) == tokens.UNK and word:len() > 1 then -- unk token with character info available
                    word = string.sub(word, 3)
                    output_tensors[split][word_num] = word2idx[tokens.UNK]
+                   idx2freq[1] = idx2freq[1] + 1
                 else
                    if word2idx[word]==nil then
                       idx2word[#idx2word + 1] = word -- create word-idx/idx-word mappings
                       word2idx[word] = #idx2word
+                      idx2freq[#idx2word] = 0
                    end
-                   output_tensors[split][word_num] = word2idx[word]
+                   index = word2idx[word]
+                   idx2freq[index] = idx2freq[index] + 1
+                   output_tensors[split][word_num] = index
                 end
                 local l = utf8.len(word)
                 for _, char in utf8.next, word do
@@ -205,10 +234,11 @@ function BatchLoaderUnk.text_to_tensor(input_files, out_vocabfile, out_tensorfil
           end
        end
     end
+    local table = BatchLoaderUnk.build_table(alpha, table_size, idx2freq)
     print "done"
     -- save output preprocessed files
     print('saving ' .. out_vocabfile)
-    torch.save(out_vocabfile, {idx2word, word2idx, idx2char, char2idx})
+    torch.save(out_vocabfile, {idx2word, word2idx, idx2freq, table, idx2char, char2idx})
     print('saving ' .. out_tensorfile)
     torch.save(out_tensorfile, output_tensors)
     print('saving ' .. out_charfile)
