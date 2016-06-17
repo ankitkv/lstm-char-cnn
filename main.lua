@@ -236,7 +236,7 @@ function feval(x)
         grad_params:mul(shrink_factor)
     end
     params:add(grad_params:mul(-lr)) -- update params
-    return torch.exp(loss)
+    return torch.exp(loss / (opt.context_size * 2))
 end
 
 
@@ -265,7 +265,8 @@ for i = 1, iterations do
         local val_loss = eval_split(2) -- 2 = validation
         print('Loss: ' .. val_loss)
         val_losses[#val_losses+1] = val_loss
-        local savefile = string.format('%s/lm_%s_epoch%.2f_%.2f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
+--        local savefile = string.format('%s/lm_%s_epoch%.2f_%.2f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
+        local savefile = string.format('%s/lm_%s.t7', opt.checkpoint_dir, opt.savefile)
         local checkpoint = {}
         checkpoint.charcnn = charcnn
         checkpoint.criterion = criterion
