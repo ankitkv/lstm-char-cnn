@@ -136,9 +136,13 @@ function get_embedding(word)
     local l = utf8.len(inword)
     local i = 1
     for _, char in utf8.next, inword do
-       local char = utf8.char(char) -- save as actual characters
-       x[{{},i}] = char2idx[char]
-       i = i+1
+        local char = utf8.char(char) -- save as actual characters
+        x[{{},i}] = char2idx[char]
+        i = i+1
+        if i == loader.max_word_l then
+            x[{{},i}] = char2idx[opt.tokens.END]
+            break
+        end
     end
     if opt.gpuid >= 0 then
         x = x:cuda()
