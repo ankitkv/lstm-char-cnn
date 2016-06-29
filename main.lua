@@ -63,6 +63,7 @@ cmd:text()
 
 -- parse input params
 opt = cmd:parse(arg)
+print(opt)
 torch.manualSeed(opt.seed)
 
 assert(opt.use_words == 1 or opt.use_words == 0, '-use_words has to be 0 or 1')
