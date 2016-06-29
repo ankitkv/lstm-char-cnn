@@ -46,7 +46,7 @@ cmd:option('-table_size',1e8,'table size from which to sample neg samples')
 -- bookkeeping
 cmd:option('-seed',3435,'torch manual random number generator seed')
 cmd:option('-print_every',500,'how many steps/minibatches between printing out the loss')
-cmd:option('-save_every', 5, 'save every n epochs')
+cmd:option('-save_every', 1, 'save every n epochs')
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','char','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 cmd:option('-EOS', '+', '<EOS> symbol. should be a single unused character (like +) for PTB and blank for others')
