@@ -49,17 +49,17 @@ function BatchLoaderUnk.create(data_dir, context_size, batch_size, max_word_l, a
        local all_ydata = {}
        for i=1,context_size do
            local ydata = data:clone()
-           ydata:sub(1,-i-1):copy(data:sub(i+1,-1))
+           ydata:sub(i+1,-1):copy(data:sub(1,-i-1))
            for j=1,i do
-               ydata[j-i-1] = 0
+               ydata[j] = 1
            end
-           all_ydata[i] = ydata
+           all_ydata[context_size-i+1] = ydata
        end
        for i=1,context_size do
            local ydata = data:clone()
-           ydata:sub(i+1,-1):copy(data:sub(1,-i-1))
+           ydata:sub(1,-i-1):copy(data:sub(i+1,-1))
            for j=1,i do
-               ydata[j] = 0
+               ydata[j-i-1] = 1
            end
            all_ydata[context_size+i] = ydata
        end

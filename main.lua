@@ -33,8 +33,8 @@ cmd:option('-feature_maps', '{50,100,150,200,200,200,200}', 'number of feature m
 cmd:option('-kernels', '{1,2,3,4,5,6,7}', 'conv net kernel widths')
 -- optimization
 cmd:option('-learning_rate',1,'starting learning rate')
-cmd:option('-learning_rate_decay',0.5,'learning rate decay')
-cmd:option('-decay_when',1,'decay if validation perplexity does not improve by more than this much')
+cmd:option('-learning_rate_decay',0.66,'learning rate decay')
+cmd:option('-decay_when',0.001,'decay if validation perplexity does not improve by more than this much')
 cmd:option('-param_init', 0.05, 'initialize parameters at')
 cmd:option('-batch_size',20,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',25,'number of full passes through the training data')
@@ -107,14 +107,10 @@ charcnn = SkipGram.skipgram(#loader.idx2word,
                     opt.kernels, loader.max_word_l, opt.highway_layers)
 criterion = nn.BCECriterion()
 
-labels = torch.zeros(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2)
-labels:sub(1,-1,1,opt.context_size * 2):fill(1)
-
 -- ship the model to the GPU if desired
 if opt.gpuid >= 0 then
     charcnn = charcnn:cuda()
     criterion = criterion:cuda()
-    labels = labels:float():cuda()
 end
 
 -- put the above things into one flattened parameters tensor
@@ -139,23 +135,52 @@ function get_layer(layer)
 end
 charcnn:apply(get_layer)
 
-function sample_contexts(context)
-    local contexts = {}
-    contexts = torch.IntTensor(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2)
-    for t = 1, opt.context_size * 2 do
-        contexts[{{},t}] = context[t][{{},1}]:int()
-    end
+function sample_contexts(context, x)
+    local labels = torch.zeros(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2):int()
+    local contexts = torch.IntTensor(opt.batch_size, (opt.neg_samples + 1) * opt.context_size * 2)
     for j = 1, opt.batch_size do
-        local i = 0
-        while i < opt.neg_samples * opt.context_size * 2 do
+        local i = 1
+    --if x[j] ~= loader.word2idx[opt.tokens.EOS] then
+        start = opt.context_size + 1
+        while start > 1 do
+            if context[start-1][{{},1}]:int()[j] ~= loader.word2idx[opt.tokens.EOS] then
+                start = start - 1
+            else
+                break
+            end
+        end
+        stop = opt.context_size
+        while stop < opt.context_size * 2 do
+            if context[stop+1][{{},1}]:int()[j] ~= loader.word2idx[opt.tokens.EOS] then
+                stop = stop + 1
+            else
+                break
+            end
+        end
+        while start <= stop do
+            contexts[j][i] = context[start][{{},1}]:int()[j]
+            labels[j][i] = 1
+            i = i + 1
+            start = start + 1
+        end
+    --end
+        local t = i - 1
+        while i <= (opt.neg_samples + 1) * opt.context_size * 2 do
             local neg_context = loader.table[torch.random(opt.table_size)]
-            if context[j] ~= neg_context then
-                contexts[j][i+1+(opt.context_size * 2)] = neg_context
+            local notfound = true
+            for k = 1,t do
+                if contexts[j][k] == neg_context then
+                    notfound = false
+                    break
+                end
+            end
+            if notfound then
+                contexts[j][i] = neg_context
                 i = i + 1
             end
         end
     end
-    return contexts
+    return contexts, labels
 end
 
 function eval_split(split_idx, max_batches)
@@ -178,16 +203,17 @@ function eval_split(split_idx, max_batches)
             x_char = x_char:float():cuda()
         end
         -- forward pass
-        local contexts = sample_contexts(y)
+        local contexts, labels = sample_contexts(y, x[{{},1}])
         if opt.gpuid >= 0 then
             contexts = contexts:float():cuda()
+            labels = labels:float():cuda()
         end
         local prediction = charcnn:forward({x_char[{{},1}], contexts})
         loss = loss + criterion:forward(prediction, labels)
     end
-    loss = loss / (n * opt.context_size * 2)
-    local perp = torch.exp(loss)
-    return perp
+    loss = loss / n
+    --local perp = torch.exp(loss)
+    return loss
 end
 
 -- do fwd/bwd and return loss, grad_params
@@ -206,10 +232,19 @@ function feval(x)
         end
         x_char = x_char:float():cuda()
     end
+--    print(loader.idx2word[y[1][1][1]], loader.idx2word[y[2][1][1]], '**'..loader.idx2word[x[1][1]]..'**', loader.idx2word[y[3][1][1]], loader.idx2word[y[4][1][1]])
+--    print(x_char[{{},1}][1])
     ------------------- forward pass -------------------
-    local contexts = sample_contexts(y)
+    local contexts, labels = sample_contexts(y, x[{{},1}])
+--    for k = 1,(opt.neg_samples + 1) * opt.context_size * 2 do
+--        io.write(loader.idx2word[contexts[1][k]] .. ' ')
+--    end
+--    print('')
+--    print(labels[1]:view(1,-1))
+--    print('')
     if opt.gpuid >= 0 then
         contexts = contexts:float():cuda()
+        labels = labels:float():cuda()
     end
     local predictions = charcnn:forward({x_char[{{},1}], contexts})
     local loss = criterion:forward(predictions, labels)
@@ -222,14 +257,15 @@ function feval(x)
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
     -- renormalize gradients
-    local grad_norm, shrink_factor
-    grad_norm = torch.sqrt(grad_params:norm()^2)
-    if grad_norm > opt.max_grad_norm then
-        shrink_factor = opt.max_grad_norm / grad_norm
-        grad_params:mul(shrink_factor)
-    end
+--    local grad_norm, shrink_factor
+--    grad_norm = torch.sqrt(grad_params:norm()^2)
+--    if grad_norm > opt.max_grad_norm then
+--        shrink_factor = opt.max_grad_norm / grad_norm
+--        grad_params:mul(shrink_factor)
+--    end
     params:add(grad_params:mul(-lr)) -- update params
-    return torch.exp(loss / (opt.context_size * 2))
+--    return torch.exp(loss / (opt.context_size * 2))
+    return loss
 end
 
 
