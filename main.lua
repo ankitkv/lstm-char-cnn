@@ -164,11 +164,10 @@ function sample_contexts(context, x)
             start = start + 1
         end
     --end
-        local t = i - 1
         while i <= (opt.neg_samples + 1) * opt.context_size * 2 do
             local neg_context = loader.table[torch.random(opt.table_size)]
             local notfound = true
-            for k = 1,t do
+            for k = 1,i-1 do
                 if contexts[j][k] == neg_context then
                     notfound = false
                     break
