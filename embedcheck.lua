@@ -24,7 +24,6 @@ local stringx = require('pl.stringx')
 cmd = torch.CmdLine()
 cmd:text('Options')
 -- data
-cmd:option('-data_dir','data/mimic','data directory. Should contain train.txt/valid.txt/test.txt with input data')
 cmd:option('-model', 'en-large-word-model.t7', 'model checkpoint file')
 -- GPU/CPU these params must be passed in because it affects the constructors
 cmd:option('-gpuid', 0,'which gpu to use. -1 = use CPU')
@@ -120,11 +119,11 @@ end
 -- for easy switch between using words/chars (or both)
 function get_input(x, x_char, t, prev_states)
     local u = {}
-    if opt.use_chars == 1 then 
+    if opt.use_chars == 1 then
         table.insert(u, x_char[{{1,2},t}])
     end
-    if opt.use_words == 1 then 
-        table.insert(u, x[{{1,2},t}]) 
+    if opt.use_words == 1 then
+        table.insert(u, x[{{1,2},t}])
     end
     for i = 1, #prev_states do table.insert(u, prev_states[i]) end
     return u

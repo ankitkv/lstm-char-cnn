@@ -80,7 +80,7 @@ opt.tokens.EOS = opt.EOS
 opt.tokens.UNK = '|' -- unk word token
 opt.tokens.START = '{' -- start-of-word token
 opt.tokens.END = '}' -- end-of-word token
-opt.tokens.ZEROPAD = ' ' -- zero-pad token 
+opt.tokens.ZEROPAD = ' ' -- zero-pad token
 
 -- load necessary packages depending on config options
 if opt.gpuid >= 0 then
@@ -99,7 +99,7 @@ end
 -- create the data loader class
 loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, opt.max_word_l)
 print('Word vocab size: ' .. #loader.idx2word .. ', Char vocab size: ' .. #loader.idx2char
-	    .. ', Max word length (incl. padding): ', loader.max_word_l)
+            .. ', Max word length (incl. padding): ', loader.max_word_l)
 opt.max_word_l = loader.max_word_l
 
 -- if number of clusters is not explicitly provided
@@ -114,18 +114,18 @@ if opt.hsm > 0 then
     require 'util.HLogSoftMax'
     mapping = torch.LongTensor(#loader.idx2word, 2):zero()
     local n_in_each_cluster = #loader.idx2word / opt.hsm
-    local _, idx = torch.sort(torch.randn(#loader.idx2word), 1, true)   
+    local _, idx = torch.sort(torch.randn(#loader.idx2word), 1, true)
     local n_in_cluster = {} --number of tokens in each cluster
     local c = 1
     for i = 1, idx:size(1) do
-        local word_idx = idx[i] 
+        local word_idx = idx[i]
         if n_in_cluster[c] == nil then
             n_in_cluster[c] = 1
         else
             n_in_cluster[c] = n_in_cluster[c] + 1
         end
         mapping[word_idx][1] = c
-        mapping[word_idx][2] = n_in_cluster[c]        
+        mapping[word_idx][2] = n_in_cluster[c]
         if n_in_cluster[c] >= n_in_each_cluster then
             c = c+1
         end
@@ -148,9 +148,9 @@ if not path.exists(opt.checkpoint_dir) then lfs.mkdir(opt.checkpoint_dir) end
 -- define the model: prototypes for one timestep, then clone them in time
 protos = {}
 print('creating an LSTM-CNN with ' .. opt.num_layers .. ' layers')
-protos.rnn = LSTMTDNN.lstmtdnn(opt.rnn_size, opt.num_layers, opt.dropout, #loader.idx2word, 
-    opt.word_vec_size, #loader.idx2char, opt.char_vec_size, opt.feature_maps, 
-    opt.kernels, loader.max_word_l, opt.use_words, opt.use_chars, 
+protos.rnn = LSTMTDNN.lstmtdnn(opt.rnn_size, opt.num_layers, opt.dropout, #loader.idx2word,
+    opt.word_vec_size, #loader.idx2char, opt.char_vec_size, opt.feature_maps,
+    opt.kernels, loader.max_word_l, opt.use_words, opt.use_chars,
     opt.batch_norm,opt.highway_layers, opt.hsm)
 -- training criterion (negative log likelihood)
 if opt.hsm > 0 then
@@ -192,14 +192,14 @@ function get_layer(layer)
     local tn = torch.typename(layer)
     if layer.name ~= nil then
         if layer.name == 'word_vecs' then
-	    word_vecs = layer
-	elseif layer.name == 'char_vecs' then
-	    char_vecs = layer
-	elseif layer.name == 'cnn' then
-	    cnn = layer
-	end
+            word_vecs = layer
+        elseif layer.name == 'char_vecs' then
+            char_vecs = layer
+        elseif layer.name == 'cnn' then
+            cnn = layer
+        end
     end
-end 
+end
 protos.rnn:apply(get_layer)
 
 -- make a bunch of clones after flattening, as that reallocates memory
@@ -232,56 +232,58 @@ function eval_split(split_idx, max_batches)
 
     loader:reset_batch_pointer(split_idx) -- move batch iteration pointer for this split to front
     local loss = 0
-    local rnn_state = {[0] = init_state}    
-    if split_idx<=2 then -- batch eval        
-	for i = 1,n do -- iterate over batches in the split
-	    -- fetch a batch
-	    local x, y, x_char = loader:next_batch(split_idx)
-	    if opt.gpuid >= 0 then -- ship the input arrays to GPU
-		-- have to convert to float because integers can't be cuda()'d
-		x = x:float():cuda()
-		y = y:float():cuda()
-		x_char = x_char:float():cuda()
-	    end
-	    -- forward pass
-	    for t=1,opt.seq_length do
-		clones.rnn[t]:evaluate() -- for dropout proper functioning
-		local lst = clones.rnn[t]:forward(get_input(x, x_char, t, rnn_state[t-1]))
-		rnn_state[t] = {}
-		for i=1,#init_state do 
+    local rnn_state = {[0] = init_state}
+    if split_idx<=2 then -- batch eval
+        for i = 1,n do -- iterate over batches in the split
+            -- fetch a batch
+            local x, y, x_char = loader:next_batch(split_idx)
+            if opt.gpuid >= 0 then -- ship the input arrays to GPU
+                -- have to convert to float because integers can't be cuda()'d
+                x = x:float():cuda()
+                y = y:float():cuda()
+                x_char = x_char:float():cuda()
+            end
+            -- forward pass
+            for t=1,opt.seq_length do
+                clones.rnn[t]:evaluate() -- for dropout proper functioning
+                local lst = clones.rnn[t]:forward(get_input(x, x_char, t, rnn_state[t-1]))
+                rnn_state[t] = {}
+                for i=1,#init_state do
                     table.insert(rnn_state[t], lst[i])
                 end
-		prediction = lst[#lst]
+                prediction = lst[#lst]
                 loss = loss + clones.criterion[t]:forward(prediction, y[{{}, t}])
-	    end
-	    -- carry over lstm state
-	    rnn_state[0] = rnn_state[#rnn_state]
-	end
-	loss = loss / opt.seq_length / n
+            end
+            -- carry over lstm state
+            rnn_state[0] = rnn_state[#rnn_state]
+            if i % 10 == 0 then collectgarbage() end
+        end
+        loss = loss / opt.seq_length / n
     else -- full eval on test set
-        local token_perp = torch.zeros(#loader.idx2word, 2) 
+        local token_perp = torch.zeros(#loader.idx2word, 2)
         local x, y, x_char = loader:next_batch(split_idx)
-	if opt.gpuid >= 0 then -- ship the input arrays to GPU
-	    -- have to convert to float because integers can't be cuda()'d
-	    x = x:float():cuda()
-	    y = y:float():cuda()
-	    x_char = x_char:float():cuda()
-	end
-	protos.rnn:evaluate() -- just need one clone
-	for t = 1, x:size(2) do
-	    local lst = protos.rnn:forward(get_input(x, x_char, t, rnn_state[0]))
-	    rnn_state[0] = {}
-	    for i=1,#init_state do table.insert(rnn_state[0], lst[i]) end
-	    prediction = lst[#lst] 
+        if opt.gpuid >= 0 then -- ship the input arrays to GPU
+            -- have to convert to float because integers can't be cuda()'d
+            x = x:float():cuda()
+            y = y:float():cuda()
+            x_char = x_char:float():cuda()
+        end
+        protos.rnn:evaluate() -- just need one clone
+        for t = 1, x:size(2) do
+            local lst = protos.rnn:forward(get_input(x, x_char, t, rnn_state[0]))
+            rnn_state[0] = {}
+            for i=1,#init_state do table.insert(rnn_state[0], lst[i]) end
+            prediction = lst[#lst]
             local tok_perp
             tok_perp = protos.criterion:forward(prediction, y[{{},t}])
             loss = loss + tok_perp
             token_perp[y[1][t]][1] = token_perp[y[1][t]][1] + 1 --count
             token_perp[y[1][t]][2] = token_perp[y[1][t]][2] + tok_perp
-	end
-	loss = loss / x:size(2)
-    end    
-    local perp = torch.exp(loss)    
+            if t % 100 == 0 then collectgarbage() end
+        end
+        loss = loss / x:size(2)
+    end
+    local perp = torch.exp(loss)
     return perp, token_perp
 end
 
@@ -301,18 +303,18 @@ function feval(x)
         -- have to convert to float because integers can't be cuda()'d
         x = x:float():cuda()
         y = y:float():cuda()
-	x_char = x_char:float():cuda()
+        x_char = x_char:float():cuda()
     end
     ------------------- forward pass -------------------
     local rnn_state = {[0] = init_state_global}
     local predictions = {}           -- softmax outputs
     local loss = 0
     for t=1,opt.seq_length do
-        clones.rnn[t]:training() -- make sure we are in correct mode (this is cheap, sets flag)        
+        clones.rnn[t]:training() -- make sure we are in correct mode (this is cheap, sets flag)
         local lst = clones.rnn[t]:forward(get_input(x, x_char, t, rnn_state[t-1]))
         rnn_state[t] = {}
-        for i=1,#init_state do 
-            table.insert(rnn_state[t], lst[i]) 
+        for i=1,#init_state do
+            table.insert(rnn_state[t], lst[i])
         end -- extract the state, without output
         predictions[t] = lst[#lst] -- last element is the prediction
         loss = loss + clones.criterion[t]:forward(predictions[t], y[{{}, t}])
@@ -325,23 +327,23 @@ function feval(x)
         -- backprop through loss, and softmax/linear
         local doutput_t = clones.criterion[t]:backward(predictions[t], y[{{}, t}])
         table.insert(drnn_state[t], doutput_t)
-	table.insert(rnn_state[t-1], drnn_state[t])
+        table.insert(rnn_state[t-1], drnn_state[t])
         local dlst = clones.rnn[t]:backward(get_input(x, x_char, t, rnn_state[t-1]), drnn_state[t])
         drnn_state[t-1] = {}
-	local tmp = opt.use_words + opt.use_chars -- not the safest way but quick
+        local tmp = opt.use_words + opt.use_chars -- not the safest way but quick
         for k,v in pairs(dlst) do
             if k > tmp then -- k == 1 is gradient on x, which we dont need
-                -- note we do k-1 because first item is dembeddings, and then follow the 
+                -- note we do k-1 because first item is dembeddings, and then follow the
                 -- derivatives of the state, starting at index 2. I know...
                 drnn_state[t-1][k-tmp] = v
             end
-        end	
+        end
     end
 
     ------------------------ misc ----------------------
     -- transfer final state to initial state (BPTT)
     init_state_global = rnn_state[#rnn_state] -- NOTE: I don't think this needs to be a clone, right?
-    
+
     -- renormalize gradients
     local grad_norm, shrink_factor
     if opt.hsm==0 then
@@ -355,7 +357,7 @@ function feval(x)
         if opt.hsm > 0 then
             hsm_grad_params:mul(shrink_factor)
         end
-    end    
+    end
     params:add(grad_params:mul(-lr)) -- update params
     if opt.hsm > 0 then
         hsm_params:add(hsm_grad_params:mul(-lr))
@@ -375,12 +377,12 @@ for i = 1, iterations do
 
     local timer = torch.Timer()
     local time = timer:time().real
-    
+
     train_loss = feval(params) -- fwd/backprop and update params
     if char_vecs ~= nil then -- zero-padding vector is always zero
-        char_vecs.weight[1]:zero() 
+        char_vecs.weight[1]:zero()
         char_vecs.gradWeight[1]:zero()
-    end 
+    end
     train_losses[i] = train_loss
 
     -- every now and then or on last iteration
@@ -398,7 +400,7 @@ for i = 1, iterations do
         checkpoint.i = i
         checkpoint.epoch = epoch
         checkpoint.vocab = {loader.idx2word, loader.word2idx, loader.idx2char, loader.char2idx}
-	checkpoint.lr = lr
+        checkpoint.lr = lr
         print('saving checkpoint to ' .. savefile)
         if epoch == opt.max_epochs or epoch % opt.save_every == 0 then
             torch.save(savefile, checkpoint)
@@ -409,12 +411,12 @@ for i = 1, iterations do
     if i % loader.split_sizes[1] == 0 and #val_losses > 2 then
         if val_losses[#val_losses-1] - val_losses[#val_losses] < opt.decay_when then
             lr = lr * opt.learning_rate_decay
-	end
-    end    
+        end
+    end
 
     if i % opt.print_every == 0 then
         print(string.format("%d/%d (epoch %.2f), train_loss = %6.4f", i, iterations, epoch, train_loss))
-    end   
+    end
     if i % 10 == 0 then collectgarbage() end
     if opt.time ~= 0 then
        print("Batch Time:", timer:time().real - time)
