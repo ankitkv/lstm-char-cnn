@@ -12,6 +12,7 @@ require 'nn'
 require 'nngraph'
 require 'lfs'
 require 'util.misc'
+require 'optim'
 
 BatchLoader = require 'util.BatchLoaderUnk'
 model_utils = require 'util.model_utils'
@@ -38,9 +39,7 @@ cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-dropout',0.5,'dropout. 0 = no dropout')
 -- optimization
 cmd:option('-hsm',0,'number of clusters to use for hsm. 0 = normal softmax, -1 = use sqrt(|V|)')
-cmd:option('-learning_rate',1,'starting learning rate')
-cmd:option('-learning_rate_decay',0.5,'learning rate decay')
-cmd:option('-decay_when',1,'decay if validation perplexity does not improve by more than this much')
+cmd:option('-learning_rate',1e-3,'starting learning rate')
 cmd:option('-param_init', 0.05, 'initialize parameters at')
 cmd:option('-batch_norm', 0, 'use batch normalization over input embeddings (1=yes)')
 cmd:option('-seq_length',35,'number of timesteps to unroll for')
@@ -95,6 +94,10 @@ if opt.cudnn == 1 then
    print('using cudnn...')
    require 'cudnn'
 end
+
+optim_state = {
+    learningRate = opt.learning_rate,
+}
 
 -- create the data loader class
 loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, opt.max_word_l)
@@ -339,8 +342,7 @@ function feval(x)
         shrink_factor = opt.max_grad_norm / grad_norm
         grad_params:mul(shrink_factor)
     end
-    params:add(grad_params:mul(-lr)) -- update params
-    return torch.exp(loss)
+    return loss, grad_params
 end
 
 
@@ -356,7 +358,8 @@ for i = 1, iterations do
     local timer = torch.Timer()
     local time = timer:time().real
 
-    train_loss = feval(params) -- fwd/backprop and update params
+    _, train_loss = optim.adam(feval, params, optim_state) -- fwd/backprop and update params
+    train_loss = torch.exp(train_loss[1])
     if char_vecs ~= nil then -- zero-padding vector is always zero
         char_vecs.weight[1]:zero()
         char_vecs.gradWeight[1]:zero()
@@ -382,13 +385,6 @@ for i = 1, iterations do
         print('saving checkpoint to ' .. savefile)
         if epoch == opt.max_epochs or epoch % opt.save_every == 0 then
             torch.save(savefile, checkpoint)
-        end
-    end
-
-    -- decay learning rate after epoch
-    if i % loader.split_sizes[1] == 0 and #val_losses > 2 then
-        if val_losses[#val_losses-1] - val_losses[#val_losses] < opt.decay_when then
-            lr = lr * opt.learning_rate_decay
         end
     end
 
