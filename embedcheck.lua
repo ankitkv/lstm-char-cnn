@@ -108,13 +108,8 @@ if opt.gpuid >= 0 then
     for k,v in pairs(protos) do v:cuda() end
 end
 
-params, grad_params = model_utils.combine_all_parameters(protos.rnn)
-if opt.hsm > 0 then
-    hsm_params, hsm_grad_params = model_utils.combine_all_parameters(protos.criterion)
-    print('number of parameters in the model: ' .. params:nElement() + hsm_params:nElement())
-else
-    print('number of parameters in the model: ' .. params:nElement())
-end
+params, grad_params = model_utils.combine_all_parameters(protos.criterion, protos.rnn)
+print('number of parameters in the model: ' .. params:nElement())
 
 -- for easy switch between using words/chars (or both)
 function get_input(x, x_char, t, prev_states)
