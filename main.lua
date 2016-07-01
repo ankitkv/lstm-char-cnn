@@ -328,7 +328,7 @@ function feval(x)
                 -- derivatives of the state, starting at index 2. I know...
                 drnn_state[t-1][k-tmp] = v
             end
-        end        
+        end
     end
 
     ------------------------ misc ----------------------
