@@ -12,6 +12,7 @@ require 'nn'
 require 'nngraph'
 require 'lfs'
 require 'util.misc'
+require 'optim'
 
 BatchLoader = require 'util.BatchLoaderUnk'
 model_utils = require 'util.model_utils'
@@ -32,9 +33,7 @@ cmd:option('-char_vec_size', 15, 'dimensionality of character embeddings')
 cmd:option('-feature_maps', '{50,100,150,200,200,200,200}', 'number of feature maps in the CNN')
 cmd:option('-kernels', '{1,2,3,4,5,6,7}', 'conv net kernel widths')
 -- optimization
-cmd:option('-learning_rate',1,'starting learning rate')
-cmd:option('-learning_rate_decay',0.66,'learning rate decay')
-cmd:option('-decay_when',0.001,'decay if validation perplexity does not improve by more than this much')
+cmd:option('-learning_rate',1e-3,'starting learning rate')
 cmd:option('-param_init', 0.05, 'initialize parameters at')
 cmd:option('-batch_size',20,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',25,'number of full passes through the training data')
@@ -58,6 +57,7 @@ cmd:text()
 
 -- parse input params
 opt = cmd:parse(arg)
+print(opt)
 torch.manualSeed(opt.seed)
 
 -- some housekeeping
@@ -85,6 +85,10 @@ if opt.cudnn == 1 then
    print('using cudnn...')
    require 'cudnn'
 end
+
+optim_state = {
+    learningRate = opt.learning_rate,
+}
 
 -- create the data loader class
 loader = BatchLoader.create(opt.data_dir, opt.context_size, opt.batch_size, opt.max_word_l, opt.alpha, opt.table_size)
@@ -255,17 +259,7 @@ function feval(x)
     local dlst = charcnn:backward({x_char[{{},1}], contexts}, doutput_t)
 
     ------------------------ misc ----------------------
-    -- transfer final state to initial state (BPTT)
-    -- renormalize gradients
---    local grad_norm, shrink_factor
---    grad_norm = torch.sqrt(grad_params:norm()^2)
---    if grad_norm > opt.max_grad_norm then
---        shrink_factor = opt.max_grad_norm / grad_norm
---        grad_params:mul(shrink_factor)
---    end
-    params:add(grad_params:mul(-lr)) -- update params
---    return torch.exp(loss / (opt.context_size * 2))
-    return loss
+    return loss, grad_params
 end
 
 
@@ -281,7 +275,8 @@ for i = 1, iterations do
     local timer = torch.Timer()
     local time = timer:time().real
 
-    train_loss = feval(params) -- fwd/backprop and update params
+    _, train_loss = optim.adam(feval, params, optim_state) -- fwd/backprop and update params
+    train_loss = torch.exp(train_loss[1] / (opt.context_size * 2))
     if char_vecs ~= nil then -- zero-padding vector is always zero
         char_vecs.weight[1]:zero()
         char_vecs.gradWeight[1]:zero()
@@ -294,7 +289,6 @@ for i = 1, iterations do
         local val_loss = eval_split(2) -- 2 = validation
         print('Loss: ' .. val_loss)
         val_losses[#val_losses+1] = val_loss
---        local savefile = string.format('%s/lm_%s_epoch%.2f_%.2f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
         local savefile = string.format('%s/lm_%s.t7', opt.checkpoint_dir, opt.savefile)
         local checkpoint = {}
         checkpoint.charcnn = charcnn
@@ -310,13 +304,6 @@ for i = 1, iterations do
         if epoch == opt.max_epochs or epoch % opt.save_every == 0 then
             print('saving checkpoint to ' .. savefile)
             torch.save(savefile, checkpoint)
-        end
-    end
-
-    -- decay learning rate after epoch
-    if i % loader.split_sizes[1] == 0 and #val_losses > 2 then
-        if val_losses[#val_losses-1] - val_losses[#val_losses] < opt.decay_when then
-            lr = lr * opt.learning_rate_decay
         end
     end
 
