@@ -6,7 +6,7 @@
 
 require 'torch'
 local model_utils = {}
-function model_utils.combine_all_parameters(...)
+function model_utils.combine_all_parameters(criterion, ...)
     --[[ like module:getParameters, but operates on many modules ]]--
 
     -- get parameters
@@ -15,16 +15,26 @@ function model_utils.combine_all_parameters(...)
     local gradParameters = {}
     for i = 1, #networks do
         local tn = torch.typename(layer)
-	local net_params, net_grads = networks[i]:parameters()
-
-	if net_params then
-	    for _, p in pairs(net_params) do
-		parameters[#parameters + 1] = p
-	    end
-	    for _, g in pairs(net_grads) do
-		gradParameters[#gradParameters + 1] = g
-	    end
-	end
+        local net_params, net_grads = networks[i]:parameters()
+        if net_params then
+            for _, p in pairs(net_params) do
+                parameters[#parameters + 1] = p
+            end
+            for _, g in pairs(net_grads) do
+                gradParameters[#gradParameters + 1] = g
+            end
+        end
+    end
+    if criterion.parameters then
+        local crit_params, crit_grads = criterion:parameters()
+        if crit_params then
+            for _, p in pairs(crit_params) do
+                parameters[#parameters + 1] = p
+            end
+            for _, g in pairs(crit_grads) do
+                gradParameters[#gradParameters + 1] = g
+            end
+        end
     end
 
     local function storageInSet(set, storage)

@@ -174,15 +174,8 @@ if opt.gpuid >= 0 then
 end
 
 -- put the above things into one flattened parameters tensor
-params, grad_params = model_utils.combine_all_parameters(protos.rnn)
--- hsm has its own params
-if opt.hsm > 0 then
-    hsm_params, hsm_grad_params = protos.criterion:getParameters()
-    hsm_params:uniform(-opt.param_init, opt.param_init)
-    print('number of parameters in the model: ' .. params:nElement() + hsm_params:nElement())
-else
-    print('number of parameters in the model: ' .. params:nElement())
-end
+params, grad_params = model_utils.combine_all_parameters(protos.criterion, protos.rnn)
+print('number of parameters in the model: ' .. params:nElement())
 
 -- initialization
 params:uniform(-opt.param_init, opt.param_init) -- small numbers uniform
@@ -292,9 +285,6 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
-    if opt.hsm > 0 then
-        hsm_grad_params:zero()
-    end
     ------------------ get minibatch -------------------
     local x, y, x_char = loader:next_batch(1) --from train
     if opt.gpuid >= 0 then -- ship the input arrays to GPU
@@ -344,22 +334,12 @@ function feval(x)
 
     -- renormalize gradients
     local grad_norm, shrink_factor
-    if opt.hsm==0 then
-        grad_norm = grad_params:norm()
-    else
-        grad_norm = torch.sqrt(grad_params:norm()^2 + hsm_grad_params:norm()^2)
-    end
+    grad_norm = grad_params:norm()
     if grad_norm > opt.max_grad_norm then
         shrink_factor = opt.max_grad_norm / grad_norm
         grad_params:mul(shrink_factor)
-        if opt.hsm > 0 then
-            hsm_grad_params:mul(shrink_factor)
-        end
     end
     params:add(grad_params:mul(-lr)) -- update params
-    if opt.hsm > 0 then
-        hsm_params:add(hsm_grad_params:mul(-lr))
-    end
     return torch.exp(loss)
 end
 
