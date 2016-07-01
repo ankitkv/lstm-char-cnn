@@ -276,7 +276,7 @@ for i = 1, iterations do
     local time = timer:time().real
 
     _, train_loss = optim.adam(feval, params, optim_state) -- fwd/backprop and update params
-    train_loss = torch.exp(train_loss[1] / (opt.context_size * 2))
+    train_loss = train_loss[1]
     if char_vecs ~= nil then -- zero-padding vector is always zero
         char_vecs.weight[1]:zero()
         char_vecs.gradWeight[1]:zero()
@@ -287,7 +287,7 @@ for i = 1, iterations do
     if i % loader.split_sizes[1] == 0 then
         -- evaluate loss on validation data
         local val_loss = eval_split(2) -- 2 = validation
-        print('Loss: ' .. val_loss)
+        print('Loss: ' .. val_loss .. ' (' ..  100.0*torch.exp(-val_loss) .. '%)')
         val_losses[#val_losses+1] = val_loss
         local savefile = string.format('%s/lm_%s.t7', opt.checkpoint_dir, opt.savefile)
         local checkpoint = {}
@@ -308,7 +308,7 @@ for i = 1, iterations do
     end
 
     if i % opt.print_every == 0 then
-        print(string.format("%d/%d (epoch %.2f), train_loss = %6.4f", i, iterations, epoch, train_loss))
+        print(string.format("%d/%d (epoch %.2f), train_loss = %6.4f (%3.2f%%)", i, iterations, epoch, train_loss, 100.0*torch.exp(-train_loss)))
     end
     if i % 10 == 0 then collectgarbage() end
     if opt.time ~= 0 then
