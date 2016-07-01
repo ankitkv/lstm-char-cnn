@@ -209,6 +209,7 @@ function eval_split(split_idx, max_batches)
         end
         local prediction = charcnn:forward({x_char[{{},1}], contexts})
         loss = loss + criterion:forward(prediction, labels)
+        if i % 10 == 0 then collectgarbage() end
     end
     loss = loss / n
     --local perp = torch.exp(loss)
