@@ -256,7 +256,6 @@ function eval_split(split_idx, max_batches)
             end
             -- carry over lstm state
             rnn_state[0] = rnn_state[#rnn_state]
-            if i % 10 == 0 then collectgarbage() end
         end
         loss = loss / opt.seq_length / n
     else -- full eval on test set
@@ -279,7 +278,6 @@ function eval_split(split_idx, max_batches)
             loss = loss + tok_perp
             token_perp[y[1][t]][1] = token_perp[y[1][t]][1] + 1 --count
             token_perp[y[1][t]][2] = token_perp[y[1][t]][2] + tok_perp
-            if t % 100 == 0 then collectgarbage() end
         end
         loss = loss / x:size(2)
     end
@@ -337,7 +335,7 @@ function feval(x)
                 -- derivatives of the state, starting at index 2. I know...
                 drnn_state[t-1][k-tmp] = v
             end
-        end
+        end        
     end
 
     ------------------------ misc ----------------------
