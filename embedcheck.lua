@@ -22,7 +22,6 @@ local stringx = require('pl.stringx')
 cmd = torch.CmdLine()
 cmd:text('Options')
 -- data
-cmd:option('-data_dir','data/mimic','data directory. Should contain train.txt/valid.txt/test.txt with input data')
 cmd:option('-model', 'en-large-word-model.t7', 'model checkpoint file')
 -- GPU/CPU these params must be passed in because it affects the constructors
 cmd:option('-gpuid', 0,'which gpu to use. -1 = use CPU')
