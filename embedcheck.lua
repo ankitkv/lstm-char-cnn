@@ -24,7 +24,8 @@ local stringx = require('pl.stringx')
 cmd = torch.CmdLine()
 cmd:text('Options')
 -- data
-cmd:option('-model', 'cv/lm_char.t7', 'model checkpoint file')
+cmd:option('-model', 'cv/lm_char.t7',
+           'model checkpoint file, overridden by global modelfile')
 -- GPU/CPU these params must be passed in because it affects the constructors
 cmd:option('-gpuid', 0,'which gpu to use. -1 = use CPU')
 cmd:option('-cudnn', 1,'use cudnn (1 = yes, 0 = no)')
@@ -52,7 +53,9 @@ HighwayMLP = require 'model.HighwayMLP'
 TDNN = require 'model.TDNN'
 LSTMTDNN = require 'model.LSTMTDNN'
 
-checkpoint = torch.load(opt2.model)
+modelfile = modelfile or opt2.model
+print('Model file: ', modelfile)
+checkpoint = torch.load(modelfile)
 opt = checkpoint.opt
 protos = checkpoint.protos
 print('opt: ')
