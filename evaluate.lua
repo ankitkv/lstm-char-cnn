@@ -63,7 +63,7 @@ idx2word, word2idx, idx2char, char2idx = table.unpack(checkpoint.vocab)
 -- recreate the data loader class
 loader = BatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, opt.padding, opt.max_word_l)
 print('Word vocab size: ' .. #loader.idx2word .. ', Char vocab size: ' .. #loader.idx2char
-	    .. ', Max word length (incl. padding): ', loader.max_word_l)
+            .. ', Max word length (incl. padding): ', loader.max_word_l)
 
 -- the initial state of the cell/hidden states
 init_state = {}
@@ -90,11 +90,11 @@ end
 -- for easy switch between using words/chars (or both)
 function get_input(x, x_char, t, prev_states)
     local u = {}
-    if opt.use_chars == 1 then 
+    if opt.use_chars == 1 then
         table.insert(u, x_char[{{1,2},t}])
     end
-    if opt.use_words == 1 then 
-        table.insert(u, x[{{1,2},t}]) 
+    if opt.use_words == 1 then
+        table.insert(u, x[{{1,2},t}])
     end
     for i = 1, #prev_states do table.insert(u, prev_states[i]) end
     return u
@@ -111,27 +111,27 @@ function eval_split_full(split_idx)
     local loss = 0
     local token_count = torch.zeros(#idx2word)
     local token_loss = torch.zeros(#idx2word)
-    local rnn_state = {[0] = init_state}    
+    local rnn_state = {[0] = init_state}
     local x, y, x_char = loader:next_batch(split_idx)
     if opt.gpuid >= 0 then
         x = x:float():cuda()
-	y = y:float():cuda()
-	x_char = x_char:float():cuda()
+        y = y:float():cuda()
+        x_char = x_char:float():cuda()
     end
-    protos.rnn:evaluate() 
+    protos.rnn:evaluate()
     for t = 1, x:size(2) do
-	local lst = protos.rnn:forward(get_input(x, x_char, t, rnn_state[0]))
-	rnn_state[0] = {}
-	for i=1,#init_state do table.insert(rnn_state[0], lst[i]) end
-	prediction = lst[#lst] 
-	local singleton_loss = protos.criterion:forward(prediction, y[{{1,2},t}])
-	loss = loss + singleton_loss
-	local token_idx = x[1][t]
-	token_count[token_idx] = token_count[token_idx] + 1
-	token_loss[token_idx] = token_loss[token_idx] + singleton_loss
+        local lst = protos.rnn:forward(get_input(x, x_char, t, rnn_state[0]))
+        rnn_state[0] = {}
+        for i=1,#init_state do table.insert(rnn_state[0], lst[i]) end
+        prediction = lst[#lst]
+        local singleton_loss = protos.criterion:forward(prediction, y[{{1,2},t}])
+        loss = loss + singleton_loss
+        local token_idx = x[1][t]
+        token_count[token_idx] = token_count[token_idx] + 1
+        token_loss[token_idx] = token_loss[token_idx] + singleton_loss
     end
     loss = loss / x:size(2)
-    local total_perp = torch.exp(loss)    
+    local total_perp = torch.exp(loss)
     return total_perp, token_loss:float(), token_count:float()
 end
 

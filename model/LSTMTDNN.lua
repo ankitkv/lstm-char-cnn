@@ -8,7 +8,7 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
     -- rnn_size = dimensionality of hidden layers
     -- n = number of layers
     -- dropout = dropout probability
-    -- word_vocab_size = num words in the vocab    
+    -- word_vocab_size = num words in the vocab
     -- word_vec_size = dimensionality of word embeddings
     -- char_vocab_size = num chars in the character vocab
     -- char_vec_size = dimensionality of char embeddings
@@ -19,10 +19,10 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
     -- use_chars = 1 if use char embeddings, otherwise not
     -- highway_layers = number of highway layers to use, if any
 
-    dropout = dropout or 0 
-    
-    -- there will be 2*n+1 inputs if using words or chars, 
-    -- otherwise there will be 2*n + 2 inputs   
+    dropout = dropout or 0
+
+    -- there will be 2*n+1 inputs if using words or chars,
+    -- otherwise there will be 2*n + 2 inputs
     local char_vec_layer, word_vec_layer, x, input_size_L, word_vec, char_vec
     local highway_layers = highway_layers or 0
     local length = length
@@ -65,7 +65,7 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
                 x = word_vec_layer(inputs[1])
                 input_size_L = word_vec_size
             end
-            if batch_norm == 1 then        
+            if batch_norm == 1 then
                 x = nn.BatchNormalization(0)(x)
             end
             if highway_layers > 0 then
@@ -73,7 +73,7 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
                 highway_mlp.name = 'highway'
                 x = highway_mlp(x) -- XXX 5
             end
-        else 
+        else
             x = outputs[(L-1)*2] -- prev_h
             if dropout > 0 then x = nn.Dropout(dropout)(x) end -- apply dropout, if any
             input_size_L = rnn_size
@@ -82,7 +82,7 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
         local i2h = nn.Linear(input_size_L, 4 * rnn_size)(x)
         local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h)
         local all_input_sums = nn.CAddTable()({i2h, h2h})
-        
+
         local sigmoid_chunk = nn.Narrow(2, 1, 3*rnn_size)(all_input_sums)
         sigmoid_chunk = nn.Sigmoid()(sigmoid_chunk)
         local in_gate = nn.Narrow(2,1,rnn_size)(sigmoid_chunk)
@@ -104,8 +104,8 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
 
   -- set up the decoder
     local top_h = outputs[#outputs]
-    if dropout > 0 then 
-        top_h = nn.Dropout(dropout)(top_h) 
+    if dropout > 0 then
+        top_h = nn.Dropout(dropout)(top_h)
     else
         top_h = nn.Identity()(top_h) --to be compatiable with dropout=0 and hsm>1
     end
