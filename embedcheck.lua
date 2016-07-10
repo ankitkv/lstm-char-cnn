@@ -85,6 +85,7 @@ function makeCharCNN(model)
         parallel:add(modules[5])
         parallel:add(model_char)
         seq:add(parallel)
+        seq:add(modules[6])
         seq:add(modules[7])
     else
         seq:add(modules[2])
@@ -120,7 +121,8 @@ if opt.gpuid >= 0 then
     for k,v in pairs(protos) do v:cuda() end
 end
 
-function get_embedding(word)
+function get_embedding(word, verbose)
+    verbose = verbose or false
     local x_char = torch.ones(2, loader.max_word_l)
     local x = torch.ones(2)
     local inword = opt.tokens.START .. word .. opt.tokens.END
@@ -137,9 +139,11 @@ function get_embedding(word)
     end
     if word2idx[word] then
         x[{{}}] = word2idx[word]
-        print('Known word')
-    else
-        print('Unknown word')
+        if verbose then
+            print('[Known word]')
+        end
+    elseif verbose then
+        print('[Unknown word]')
     end
     if opt.gpuid >= 0 then
         x = x:cuda()
@@ -164,9 +168,9 @@ function save_embeddings()
             collectgarbage()
         end
     end
-    for k,v in pairs(emb_table) do
-        print(k, v:sum())
-    end
+    --for k,v in pairs(emb_table) do
+    --    print(k, v:sum())
+    --end
     print('Saving embeddings')
     torch.save(opt2.embfile, emb_table)
 end
@@ -178,10 +182,11 @@ else
     emb_table = torch.load(opt2.embfile)
 end
 
-function get_knn(word, num)
+function get_knn(word, num, verbose)
     num = num or 50
+    verbose = verbose or true
     print('\n== ' .. word .. ' ==\n')
-    input = get_embedding(word)
+    input = get_embedding(word, verbose)
     cosined = nn.CosineDistance():cuda()
     dist_table = {}
     local i = 0
