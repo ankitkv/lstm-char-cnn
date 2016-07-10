@@ -28,12 +28,12 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
     local length = length
     local inputs = {}
     if use_chars == 1 then
-        table.insert(inputs, nn.Identity()()) -- batch_size x word length (char indices)
+        table.insert(inputs, nn.Identity()()) -- batch_size x word length (char indices) -- XXX 1
         char_vec_layer = LookupTable(char_vocab_size, char_vec_size)
         char_vec_layer.name = 'char_vecs' -- change name so we can refer to it easily later
     end
     if use_words == 1 then
-        table.insert(inputs, nn.Identity()()) -- batch_size x 1 (word indices)
+        table.insert(inputs, nn.Identity()()) -- batch_size x 1 (word indices)  -- XXX 4
         word_vec_layer = LookupTable(word_vocab_size, word_vec_size)
         word_vec_layer.name = 'word_vecs' -- change name so we can refer to it easily later
     end
@@ -49,14 +49,14 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
         -- the input to this layer
         if L == 1 then
             if use_chars == 1 then
-                char_vec = char_vec_layer(inputs[1]) -- XXX 2
+                char_vec = char_vec_layer(inputs[1]) -- XXX char2, 2
                 local char_cnn = TDNN.tdnn(length, char_vec_size, feature_maps, kernels)
                 char_cnn.name = 'cnn' -- change name so we can refer to it later
-                local cnn_output = char_cnn(char_vec) -- XXX 3
+                local cnn_output = char_cnn(char_vec) -- XXX char3, 3
                 input_size_L = torch.Tensor(feature_maps):sum()
                 if use_words == 1 then
-                    word_vec = word_vec_layer(inputs[2])
-                    x = nn.JoinTable(2)({cnn_output, word_vec})
+                    word_vec = word_vec_layer(inputs[2]) -- XXX 5
+                    x = nn.JoinTable(2)({cnn_output, word_vec}) -- XXX 6
                     input_size_L = input_size_L + word_vec_size
                 else
                     x = nn.Identity()(cnn_output)
@@ -71,7 +71,7 @@ function LSTMTDNN.lstmtdnn(rnn_size, n, dropout, word_vocab_size, word_vec_size,
             if highway_layers > 0 then
                 local highway_mlp = HighwayMLP.mlp(input_size_L, highway_layers)
                 highway_mlp.name = 'highway'
-                x = highway_mlp(x) -- XXX 5
+                x = highway_mlp(x) -- XXX char5, 7
             end
         else
             x = outputs[(L-1)*2] -- prev_h

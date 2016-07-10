@@ -77,9 +77,20 @@ function makeCharCNN(model)
     end
 
     seq = nn.Sequential()
-    seq:add(modules[2])
-    seq:add(modules[3])
-    seq:add(modules[5])
+    if opt.use_words == 1 then
+        parallel = nn.ParallelTable()
+        model_char = nn.Sequential()
+        model_char:add(modules[2])
+        model_char:add(modules[3])
+        parallel:add(modules[5])
+        parallel:add(model_char)
+        seq:add(parallel)
+        seq:add(modules[7])
+    else
+        seq:add(modules[2])
+        seq:add(modules[3])
+        seq:add(modules[5])
+    end
     return seq
 end
 
@@ -110,32 +121,51 @@ if opt.gpuid >= 0 then
 end
 
 function get_embedding(word)
-    local x = torch.ones(2, loader.max_word_l)
+    local x_char = torch.ones(2, loader.max_word_l)
+    local x = torch.ones(2)
     local inword = opt.tokens.START .. word .. opt.tokens.END
     local l = utf8.len(inword)
     local i = 1
     for _, char in utf8.next, inword do
         local char = utf8.char(char) -- save as actual characters
-        x[{{},i}] = char2idx[char]
+        x_char[{{},i}] = char2idx[char]
         i = i+1
         if i == loader.max_word_l then
-            x[{{},i}] = char2idx[opt.tokens.END]
+            x_char[{{},i}] = char2idx[opt.tokens.END]
             break
         end
     end
+    if word2idx[word] then
+        x[{{}}] = word2idx[word]
+        print('Known word')
+    else
+        print('Unknown word')
+    end
     if opt.gpuid >= 0 then
         x = x:cuda()
+        x_char = x_char:cuda()
     end
-    return charcnn:forward(x)[1]
+    if opt.use_words == 1 then
+        return charcnn:forward({x, x_char})[1]
+    else
+        return charcnn:forward(x_char)[1]
+    end
 end
 
 function save_embeddings()
     print('Getting embeddings for vocabulary')
     emb_table = {}
+    local i = 0
     for word, _ in pairs(loader.word2idx) do
-        local pout = out
         local out = get_embedding(word)
         emb_table[word] = out:clone()
+        i = i + 1
+        if i % 10 == 0 then
+            collectgarbage()
+        end
+    end
+    for k,v in pairs(emb_table) do
+        print(k, v:sum())
     end
     print('Saving embeddings')
     torch.save(opt2.embfile, emb_table)
@@ -154,8 +184,13 @@ function get_knn(word, num)
     input = get_embedding(word)
     cosined = nn.CosineDistance():cuda()
     dist_table = {}
+    local i = 0
     for k,v in pairs(emb_table) do
         dist_table[k] = cosined:forward({input, v:cuda()})[1]
+        i = i + 1
+        if i % 10 == 0 then
+            collectgarbage()
+        end
     end
     function compare(a, b)
         return a[2] > b[2]
@@ -166,9 +201,5 @@ function get_knn(word, num)
     for i=1,num do
         print(i, tmp[i][1])
     end
-    print('...')
-    table.sort(tmp, compare)
-    for i=#tmp-num,#tmp do
-        print(i, tmp[i][1])
-    end
+    collectgarbage()
 end
