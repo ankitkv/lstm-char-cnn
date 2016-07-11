@@ -137,20 +137,28 @@ function get_embedding(word, verbose)
             break
         end
     end
+    local known = true
     if word2idx[word] then
         x[{{}}] = word2idx[word]
         if verbose then
             print('[Known word]')
         end
-    elseif verbose then
-        print('[Unknown word]')
+    else
+        known = false
+        if verbose then
+            print('[Unknown word]')
+        end
     end
     if opt.gpuid >= 0 then
         x = x:cuda()
         x_char = x_char:cuda()
     end
     if opt.use_words == 1 then
-        return charcnn:forward({x, x_char})[1]
+        result = charcnn:forward({x, x_char})[1]
+        if not known then
+            result[{{-opt.word_vec_size, -1}}]:zero() -- zero out word vec
+        end
+        return result
     else
         return charcnn:forward(x_char)[1]
     end
