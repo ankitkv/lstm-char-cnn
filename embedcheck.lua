@@ -7,6 +7,7 @@ https://github.com/wojzaremba/lstm
 ]]--
 
 require 'torch'
+require 'io'
 require 'nn'
 require 'nngraph'
 require 'optim'
@@ -31,6 +32,8 @@ cmd:option('-gpuid', 0,'which gpu to use. -1 = use CPU')
 cmd:option('-cudnn', 1,'use cudnn (1 = yes, 0 = no)')
 cmd:option('-save', 0,'create and save embeddings (1 = yes, 0 = no)')
 cmd:option('-embfile', 'embeddings', 'embeddings file')
+cmd:option('-vocabfile', '', 'vocab file')
+cmd:option('-vocabembfile', 'vocab_embeddings', 'embeddings for provided vocab')
 
 cmd:text()
 
@@ -164,6 +167,28 @@ function get_embedding(word, verbose)
     end
 end
 
+function generate_embeddings()
+    print('Getting embeddings provided vocabulary')
+    local i = 0
+    f = io.open(opt2.vocabembfile, 'w')
+    for word in io.lines(opt2.vocabfile) do
+        f:write(word)
+        local out = get_embedding(word)
+        for j = 1, out:size(1) do
+            f:write(string.format(' %.10f', out[j]))
+        end
+        f:write('\n')
+        i = i + 1
+        if i % 10 == 0 then
+            collectgarbage()
+            if i % 100 == 0 then
+                print(i)
+            end
+        end
+    end
+    f:close()
+end
+
 function save_embeddings()
     print('Getting embeddings for vocabulary')
     emb_table = {}
@@ -183,7 +208,9 @@ function save_embeddings()
     torch.save(opt2.embfile, emb_table)
 end
 
-if opt2.save == 1 then
+if opt2.vocabfile ~= '' then
+    generate_embeddings()
+elseif opt2.save == 1 then
     save_embeddings()
 else
     print('Loading embeddings')
